@@ -126,7 +126,7 @@ ui <- dashboardPage(
                    column(width = 8,
                           tippy_this(elementId = "anno-outer-container", tooltip = "In order to select an area on the image, press the shift key when drawing the area",
                                      duration = 1000, arrow = TRUE, theme = "dark", placement = "top", sticky = TRUE),
-                          openseadragonOutput(outputId = "anno", width = "100%", height = "800px"),
+                          openseadragonOutput(outputId = "anno", width = "100%", height = "900px"),
                           ),
                    column(width = 4,
                           actionButton(inputId = "ui_next", label = "GO TO NEXT IMAGE", icon = icon("play"), width = "100%", status = "secondary", flat = TRUE),
@@ -239,7 +239,9 @@ server <- function(input, output, session) {
                          areas            = as.character(serializeJSON(DB_OUT$items)),
                          n_areas          = length(DB_OUT$items),
                          stringsAsFactors = FALSE)
-    db_write(DB_DATA$db, data = output, table = "annotations", overwrite = FALSE, append = TRUE)
+    if(DB_APP$image_nr <= nrow(DB_TODO$data)){
+      db_write(DB_DATA$db, data = output, table = "annotations", overwrite = FALSE, append = TRUE)
+    }
     DB_APP$image_nr <- DB_APP$image_nr + 1
   })
   current_image <- reactive({
