@@ -1,3 +1,7 @@
+## App idea: align image areas with text chunks
+##   1. show image + paragraphs
+##   2. allow selecting area, if area is shown, assign one or several paragraphs to it
+##   3. define order in the paragraphs by showing the image chunks and letting them order it
 library(shiny)
 library(knitr)
 library(recogito)
@@ -30,7 +34,7 @@ settings <- list()
 settings$local_images <- file.path(getwd(), "src", "area2text", "img")
 settings$local_images <- tempdir()
 settings$default_db   <- "area2text.RData"
-
+addResourcePath(prefix = "img", directoryPath = settings$local_images)
 
 ## Function to read/write to the database and initialise the database
 db_init <- function(db, data, fresh = !file.exists(db)){
@@ -81,23 +85,24 @@ db_write <- function(db = ":memory:", data, table, ...){
 }
 
 
-## Data frame with document id, text and
-#x <- readRDS("/mnt/digidisk/home/digi/ShinyApps/getuigenissen2-area2text/getuigenissen_2_0.rds")
-#x <- x$brugse_vrije
+##
+## Data frame with document id, text and image_url
+##
+#x        <- readRDS("/mnt/digidisk/home/digi/ShinyApps/getuigenissen2-area2text/getuigenissen_2_0.rds")
+#x        <- x$brugse_vrije
 #x$id     <- x$id
 #x$text   <- sapply(x$value, FUN = function(x) xml_text(read_html(x)))
 #x$image  <- x$image_url
-x <- data.frame(id = "digi-vub", text = "Brussels Platform for Digital Humanities\n\nResearch Group", image_url = "https://raw.githubusercontent.com/DIGI-VUB/recogito/master/tools/logo.png", stringsAsFactors = FALSE)
+x <- data.frame(id = "digi-vub",
+                text = "Brussels Platform for Digital Humanities\n\nResearch Group",
+                image_url = "https://raw.githubusercontent.com/DIGI-VUB/recogito/master/tools/logo.png",
+                stringsAsFactors = FALSE)
 
-# file.remove(settings$default_db)
-# x <- db_init(settings$default_db, data = x[, sapply(x, is.atomic)])
 
-## IDEA:
-##   1. show image + paragraphs
-##   2. allow selecting area, if area is shown, assign one or 2 paragraphs to it
-##   3. define order in the paragraphs by showing the image chunks and letting them order it
-addResourcePath(prefix = "img", directoryPath = settings$local_images)
-
+##########################################################################################################
+## UI
+##
+##
 ui <- dashboardPage(
   header = dashboardHeader(disable = TRUE),
   sidebar = dashboardSidebar(id = "sidebar", icon = icon("draw-polygon"), collapsed = FALSE, fixed = FALSE, expandOnHover = TRUE, skin = "light", status = "info",
@@ -154,13 +159,16 @@ popup_upload <- modalDialog(title = "Upload data",
                             fileInput(inputId = "ui_tid_input", label = "Select an .rds file",   buttonLabel = "Browse...", width = "100%"),
                             tags$details(tags$summary("More information about the required structure of this file"),
                                          tags$ul(
-                                           tags$li("This file should contain a data.frame with columns id, text and image_url."),
+                                           tags$li("This file should contain a data.frame with columns id, text and image_url and optionally id_label."),
                                            tags$li("Text chunks  in column text should be separated by 2 newline characters."),
                                            tags$li("The image_url's should be publically accessible images."))),
                                   size = "xl", easyClose = TRUE, footer = NULL)
 
 
-
+##########################################################################################################v
+## SERVER
+##
+##
 server <- function(input, output, session) {
   ## Intro
   sendSweetAlert(
@@ -197,7 +205,6 @@ server <- function(input, output, session) {
         if(!inherits(x, "data.frame") || !all(c("id", "text", "image_url") %in% colnames(x))){
           showModal(modalDialog(title = "New data upload failed", "Uploaded data is not a data.frame with columns id, text and image_url"))
         }else{
-          #x <- head(x, n = 100)
           x$id            <- x$id
           ## Update the reactives which trigger the app
           DB_DATA$rawdata       <- x
@@ -211,6 +218,7 @@ server <- function(input, output, session) {
       }else{
         showModal(modalDialog(title = "New data upload failed", "Uploaded data is not a .rds/.csv file"))
       }
+      updateTabItems(session = session, inputId = "tabs_sidebar", selected = "tabs_sidebar_work")
     }
   })
   observe({
@@ -282,8 +290,6 @@ server <- function(input, output, session) {
     outfile <- file.path(settings$local_images, outfile)
     image_write(img, path = outfile)
     ## original texts
-    labels <- mapply(text_chunks, seq_along(text_chunks), FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE)
-    rank_list_multi_original <- rank_list(text = "Text chunks", labels = labels, input_id = "rank_list_multi_original", options = sortable_options(multiDrag = TRUE))
     bbox <- image_info(img_orig)
     bbox <- c(xmin = 0, ymin = 0, xmax = bbox$width - 1, ymax = bbox$height - 1)
     list(item = item,
@@ -292,18 +298,15 @@ server <- function(input, output, session) {
          img_ocv = ocv_read(outfile),
          img_info = image_info(img_orig),
          bbox = bbox,
-         rank_list_multi_original = rank_list_multi_original,
          text_chunks = text_chunks,
-         text = text,
-         labels = labels)
+         text = text)
   })
 
   output$image_info <- renderPrint({
     info <- current_image()
     list(info$text_chunks,
          img = info$url,
-         info = image_info(info$img),
-         resize_ratio = image_info(info$img)$width / 1000
+         info = image_info(info$img)
     )
   })
 
@@ -356,11 +359,6 @@ server <- function(input, output, session) {
   output$annotation_result_r <- renderPrint({
     str(DB_OUT$items)
   })
-  # output$annotation_result <- renderDataTable({
-  #   x <- read_annotorious(input$annotations)
-  #   x <- data.frame(id = x$id, type = x$type, label = x$label, comment = x$comment, x = x$x, y = x$y, width = x$width, height = x$height, polygon = sapply(x$polygon, toJSON))
-  #   datatable(x)
-  # })
   ##
   ## Main area of selection
   ##
@@ -373,7 +371,6 @@ server <- function(input, output, session) {
 
   last_anno <- reactive({
     anno <- read_annotorious(input$annotations)
-    #saveRDS(msg, file = "areas.rds")
     if(nrow(anno) > 0){
       isolate({
         info <- current_image()
@@ -449,15 +446,15 @@ server <- function(input, output, session) {
     }
   })
   output$uo_rankme <- renderUI({
-    areas  <- last_anno()
-    info   <- current_image()
-    values <- info$labels
+    areas       <- last_anno()
+    info        <- current_image()
+    text_chunks <- info$text_chunks
+    values <- mapply(text_chunks, seq_along(text_chunks), FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE)
     values <- setNames(values, sprintf("paragraph_%s", seq_along(values)))
     values <- setNames(values, seq_along(values))
     #values[[4]] <- tags$div(
     #  em("Complex"), " html tag without a name", tags$img(src = "img/default1.jpg")
     #)
-    #print(values)
     rank_list(
       text = NULL,
       labels = values,
