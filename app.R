@@ -393,7 +393,6 @@ server <- function(input, output, session) {
     }
   })
   output$uo_rankme <- renderUI({
-    areas       <- last_anno()
     info        <- current_image()
     text_chunks <- info$text_chunks
     values <- mapply(text_chunks, seq_along(text_chunks), FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE)
