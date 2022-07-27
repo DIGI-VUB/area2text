@@ -80,8 +80,6 @@ db_write <- function(db = ":memory:", data, table, ...){
   x
 }
 
-## base64-encoded image
-#img_start <- image_uri("/mnt/digidisk/home/digi/ShinyApps/getuigenissen2-area2text/start.png")
 
 ## Data frame with document id, text and
 #x <- readRDS("/mnt/digidisk/home/digi/ShinyApps/getuigenissen2-area2text/getuigenissen_2_0.rds")
@@ -170,7 +168,6 @@ server <- function(input, output, session) {
     title = "Welcome",
     text = tags$span(
       "The objective of this app is to align texts with image regions.",
-      #tags$p(tags$img(src = img_start, height = "100px", width = "auto")),
       "You upload images and the text chunks and indicate which text chunk belongs to which part of the image"),
     html = TRUE, type = "info", btn_labels = "Ok")
 
@@ -263,8 +260,7 @@ server <- function(input, output, session) {
     if(i > nrow(x)){
       i <- nrow(x)
       sendSweetAlert(session = session, title = "Yippie",
-        text = tags$span("All images are handled ", icon("smile")#, tags$p(tags$img(src = img_start, height = "100px", width = "auto"))
-                         ),
+        text = tags$span("All images are handled ", icon("smile")),
         html = TRUE, type = "success", btn_labels = "Ok")
     }
     #i            <- sample(seq_len(nrow(x)), size = 1)
@@ -407,12 +403,14 @@ server <- function(input, output, session) {
                                         header = NULL,
                                         group_name = "bucket_list_group",
                                         orientation = "horizontal",
-                                        #add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
-                                        #              labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
-                                        #                                       FUN = function(x, i) tags$div(tags$em(textAreaInput(inputId = sprintf("para%s", i), value = x, label = NULL))), SIMPLIFY = FALSE), info$text_chunks)),
                                         add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
                                                       labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
-                                                                               FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE), info$text_chunks)),
+                                                                               FUN = function(x, i) tags$div(tags$em(textAreaInput(inputId = sprintf("ui_paragraph_%s", i), value = x, label = NULL))), SIMPLIFY = FALSE),
+                                                                        seq_along(info$text_chunks))),
+                                        #add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
+                                        #              labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
+                                        #                                       FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE),
+                                        #                                seq_along(info$text_chunks))),
                                         add_rank_list(text = "to here", input_id = "rank_list_to", labels = NULL)
                                       ),
                                       size = "xl", easyClose = TRUE, footer = NULL)
@@ -422,11 +420,17 @@ server <- function(input, output, session) {
   observeEvent(input$ui_save_assignment, {
     anno <- read_annotorious(input$annotations)
     if(length(input$rank_list_to) > 0){
-      info <- current_image()
+      info                  <- current_image()
+      text_chunks           <- info$text_chunks
+      text_chunks_selected  <- as.integer(input$rank_list_to)
+      text_chunks_corrected <- text_chunks[text_chunks_selected]
+      text_chunks_corrected <- sapply(text_chunks_selected, FUN = function(i) input[[sprintf("ui_paragraph_%s", i)]])
       DB_OUT$items[[length(DB_OUT$items) + 1]] <- list(doc_id = DB_APP$doc_id,
-                                                       item = info$item,
-                                                       area = head(anno, n = 1),
-                                                       texts = input$rank_list_to, areas = anno, anno = input$annotations)
+                                                       item   = info$item,
+                                                       area   = head(anno, n = 1),
+                                                       texts  = text_chunks[text_chunks_selected],
+                                                       texts_corrected = text_chunks_corrected,
+                                                       areas  = anno, anno = input$annotations)
       removeModal()
     }else{
       showNotification("First assign text to the image by dragging the corresponding text from left to right", type = "error")
