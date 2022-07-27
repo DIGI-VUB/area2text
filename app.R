@@ -186,7 +186,7 @@ server <- function(input, output, session) {
   ##
   DB_DATA <- reactiveValues(rawdata = x, dataset_label = settings$default_db, db = file_db(settings$default_db))
   DB_TODO <- reactiveValues(data = x)
-  DB_APP  <- reactiveValues(image_nr = 0, url = NULL, doc_id = NULL)
+  DB_APP  <- reactiveValues(image_nr = 1, url = NULL, doc_id = NULL)
   DB_OUT  <- reactiveValues(items = list())
 
   ##
@@ -233,7 +233,7 @@ server <- function(input, output, session) {
     # start from what is not done already
     isolate({
       DB_TODO$data    <- x$docs[order(x$docs$id %in% x$annotations$doc_id, decreasing = TRUE), ]
-      DB_APP$image_nr <- sum(DB_TODO$data$id %in% x$annotations$doc_id)
+      DB_APP$image_nr <- sum(DB_TODO$data$id %in% x$annotations$doc_id) + 1
     })
   })
   ##
@@ -269,7 +269,7 @@ server <- function(input, output, session) {
                          areas            = as.character(serializeJSON(DB_OUT$items)),
                          n_areas          = length(DB_OUT$items),
                          stringsAsFactors = FALSE)
-    if(DB_APP$image_nr < nrow(DB_TODO$data)){
+    if(DB_APP$image_nr <= nrow(DB_TODO$data)){
       db_write(DB_DATA$db, data = output, table = "annotations", overwrite = FALSE, append = TRUE)
     }
     DB_APP$image_nr <- DB_APP$image_nr + 1
@@ -281,7 +281,7 @@ server <- function(input, output, session) {
   ##
   current_image <- reactive({
     x <- DB_TODO$data
-    i <- DB_APP$image_nr + 1
+    i <- DB_APP$image_nr
     if(i > nrow(x)){
       i <- nrow(x)
       sendSweetAlert(session = session, title = "Yippie",
@@ -374,7 +374,7 @@ server <- function(input, output, session) {
                                         orientation = "horizontal",
                                         add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
                                                       labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
-                                                                               FUN = function(x, i) tags$div(tags$em(textAreaInput(inputId = sprintf("ui_paragraph_%s", i), value = x, label = NULL))), SIMPLIFY = FALSE),
+                                                                               FUN = function(x, i) tags$div(tags$em(textAreaInput(inputId = sprintf("ui_paragraph_%s", i), value = x, label = NULL, width = "100%"))), SIMPLIFY = FALSE),
                                                                         seq_along(info$text_chunks))),
                                         #add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
                                         #              labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
@@ -446,7 +446,7 @@ server <- function(input, output, session) {
     infoBox(title = "# of areas labelled", value = info$n, icon = icon("draw-polygon"), width = 4)
   })
   output$uo_box_images_done <- renderInfoBox({
-    infoBox(title = "# images handled", value = DB_APP$image_nr, icon = icon("image"), width = 4)
+    infoBox(title = "# images handled", value = DB_APP$image_nr - 1, icon = icon("image"), width = 4)
   })
   output$uo_box_images <- renderInfoBox({
     infoBox(title = "# images in data", value = nrow(DB_DATA$rawdata), icon = icon("database"), width = 4)
@@ -457,7 +457,7 @@ server <- function(input, output, session) {
     )
   })
   observe({
-    updateProgressBar(session = session, id = "uo_box_images_progress", value = DB_APP$image_nr, total = nrow(DB_DATA$rawdata))
+    updateProgressBar(session = session, id = "uo_box_images_progress", value = DB_APP$image_nr - 1, total = nrow(DB_DATA$rawdata))
   })
   output$uo_current_image <- renderUI({
     info  <- current_image()
