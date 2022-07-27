@@ -335,7 +335,13 @@ server <- function(input, output, session) {
   })
   output$uo_current_image <- renderUI({
     info  <- current_image()
-    label <- sprintf("%s, Canvas %s", info$item$manifest_label, info$item$canvas_id)
+    if("id_label" %in% colnames(info$item)){
+      label <- info$item$id_label
+    }else if(all(c("manifest_label", "canvas_id") %in% colnames(info$item))){
+      label <- sprintf("%s, Canvas %s", info$item$manifest_label, info$item$canvas_id)
+    }else{
+      label <- info$item$id
+    }
     div(
       blockQuote("Image: ", label, color = "info")
     )
