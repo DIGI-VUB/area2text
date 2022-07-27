@@ -118,8 +118,14 @@ ui <- dashboardPage(
                              uiOutput(outputId = "uo_current_image"),
                              infoBoxOutput(outputId = "uo_box_chunk_amount", width = 12),
                              infoBoxOutput(outputId = "uo_box_chunk_amount_done", width = 12),
-                             div(downloadButton(outputId = "ui_export", label = "Export data", icon = icon("download")), style = "text-align: center")
-
+                             div(
+                               blockQuote("Options", color = "info")
+                             ),
+                             materialSwitch(inputId = "ui_allow_text_changing", label = "Allow changing text", status = "info", right = TRUE, value = FALSE),
+                             actionButton(inputId = "ui_clear", label = "Clear image", icon = icon("brush"), width = "90%"),
+                             tags$hr(),
+                             div(downloadButton(outputId = "ui_export", label = "Export data", icon = icon("download")), style = "text-align: center"),
+                             tags$hr()
                              ),
   footer = dashboardFooter(left = "Brussels Platform for Digital Humanities", right = tags$span(id = "ui_footer_right", textOutput(outputId = "uo_footer_right"))),
   body = dashboardBody(
@@ -251,8 +257,8 @@ server <- function(input, output, session) {
     content = function(file) {
       docs                    <- db_read(DB_DATA$db, "select * from docs")
       annotations             <- db_read(DB_DATA$db, "select * from annotations")
-      annotations$text_chunks <- lapply(annotations$text_chunks, fromJSON)
-      annotations$areas       <- lapply(annotations$areas, unserializeJSON)
+      #annotations$text_chunks <- lapply(annotations$text_chunks, fromJSON)
+      #annotations$areas       <- lapply(annotations$areas, unserializeJSON)
       saveRDS(list(docs = docs, anno = annotations), file, compress = FALSE, version = 2)
     }
   )
@@ -273,6 +279,10 @@ server <- function(input, output, session) {
       db_write(DB_DATA$db, data = output, table = "annotations", overwrite = FALSE, append = TRUE)
     }
     DB_APP$image_nr <- DB_APP$image_nr + 1
+    DB_OUT$items    <- list()
+  })
+  observeEvent(input$ui_clear, {
+    DB_OUT$items <- list()
   })
 
   ##
@@ -280,6 +290,7 @@ server <- function(input, output, session) {
   ## Triggered in case new data is uploaded and image number is increased
   ##
   current_image <- reactive({
+    input$ui_clear
     x <- DB_TODO$data
     i <- DB_APP$image_nr
     if(i > nrow(x)){
@@ -361,10 +372,24 @@ server <- function(input, output, session) {
   observe({
     areas <- last_anno()
     isolate({
-      info                 <- current_image()
-      existing_assignments <- unlist(lapply(DB_OUT$items, FUN = function(x) x$areas$id))
+      info                  <- current_image()
+      existing_assignments  <- unlist(lapply(DB_OUT$items, FUN = function(x) x$areas$id))
+      existing_chunks_index <- as.integer(unique(unlist(lapply(DB_OUT$items, FUN = function(x) x$texts_index))))
     })
     if(areas$n > 0 && !areas$data$id %in% existing_assignments){
+      idx    <- which(!(seq_along(info$text_chunks) %in% existing_chunks_index))
+      isolate({
+        allow_update_text  <- input$ui_allow_text_changing
+      })
+      if(allow_update_text){
+        labels <- setNames(mapply(info$text_chunks[idx], seq_along(info$text_chunks)[idx],
+                                  FUN = function(x, i) tags$div(tags$em(textAreaInput(inputId = sprintf("ui_paragraph_%s", i), value = x, label = NULL, width = "100%", height = "100%"))), SIMPLIFY = FALSE),
+                           seq_along(info$text_chunks)[idx])
+      }else{
+        labels <- setNames(mapply(info$text_chunks[idx], seq_along(info$text_chunks)[idx],
+                                  FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE),
+                           seq_along(info$text_chunks)[idx])
+      }
       popup_assignment <- modalDialog(title = "Assign area to text - drag the text on the image from left to right",
                                       actionButton(inputId = "ui_save_assignment", label = "Assignment done", status = "success", flat = FALSE, width = "100%"),
                                       openseadragonOutputNoToolbar(outputId = "uo_area", height = "200px"),
@@ -372,14 +397,7 @@ server <- function(input, output, session) {
                                         header = NULL,
                                         group_name = "bucket_list_group",
                                         orientation = "horizontal",
-                                        add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
-                                                      labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
-                                                                               FUN = function(x, i) tags$div(tags$em(textAreaInput(inputId = sprintf("ui_paragraph_%s", i), value = x, label = NULL, width = "100%"))), SIMPLIFY = FALSE),
-                                                                        seq_along(info$text_chunks))),
-                                        #add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
-                                        #              labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
-                                        #                                       FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE),
-                                        #                                seq_along(info$text_chunks))),
+                                        add_rank_list(text = "Drag text from here", input_id = "rank_list_from", labels = labels),
                                         add_rank_list(text = "to here", input_id = "rank_list_to", labels = NULL)
                                       ),
                                       size = "xl", easyClose = TRUE, footer = NULL)
@@ -419,11 +437,13 @@ server <- function(input, output, session) {
       text_chunks_selected  <- as.integer(input$rank_list_to)
       text_chunks_corrected <- text_chunks[text_chunks_selected]
       text_chunks_corrected <- sapply(text_chunks_selected, FUN = function(i) input[[sprintf("ui_paragraph_%s", i)]])
+      text_chunks_corrected <- unlist(text_chunks_corrected)
       DB_OUT$items[[length(DB_OUT$items) + 1]] <- list(doc_id = DB_APP$doc_id,
                                                        item   = info$item,
                                                        area   = head(anno, n = 1),
                                                        texts  = text_chunks[text_chunks_selected],
                                                        texts_corrected = text_chunks_corrected,
+                                                       texts_index = text_chunks_selected,
                                                        areas  = anno, anno = input$annotations)
       removeModal()
     }else{
