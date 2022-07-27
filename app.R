@@ -29,7 +29,7 @@ file_db <- function(x){
 settings <- list()
 settings$local_images <- file.path(getwd(), "src", "area2text", "img")
 settings$local_images <- tempdir()
-settings$default_db   <- file_db("area2text.RData")
+settings$default_db   <- "area2text.RData"
 
 
 ## Function to read/write to the database and initialise the database
@@ -175,7 +175,7 @@ server <- function(input, output, session) {
     html = TRUE, type = "info", btn_labels = "Ok")
 
   ## DB_DATA: raw data, DB_TODO: things to do, DB_APP: current image, DB_OUT: results of the annotations
-  DB_DATA <- reactiveValues(rawdata = x, dataset_label = "getuigenissen-2.0.RData", db = file_db("getuigenissen-2.0.RData"))
+  DB_DATA <- reactiveValues(rawdata = x, dataset_label = settings$default_db, db = file_db(settings$default_db))
   DB_TODO <- reactiveValues(data = x)
   DB_APP  <- reactiveValues(image_nr = 0, url = NULL, doc_id = NULL)
   DB_OUT  <- reactiveValues(items = list())
@@ -258,10 +258,8 @@ server <- function(input, output, session) {
     DB_APP$image_nr <- DB_APP$image_nr + 1
   })
   current_image <- reactive({
-    isolate({
-      x            <- DB_TODO$data
-    })
-    i            <- DB_APP$image_nr + 1
+    x <- DB_TODO$data
+    i <- DB_APP$image_nr + 1
     if(i > nrow(x)){
       i <- nrow(x)
       sendSweetAlert(session = session, title = "Yippie",
