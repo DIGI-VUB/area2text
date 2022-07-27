@@ -407,8 +407,12 @@ server <- function(input, output, session) {
                                         header = NULL,
                                         group_name = "bucket_list_group",
                                         orientation = "horizontal",
+                                        #add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
+                                        #              labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
+                                        #                                       FUN = function(x, i) tags$div(tags$em(textAreaInput(inputId = sprintf("para%s", i), value = x, label = NULL))), SIMPLIFY = FALSE), info$text_chunks)),
                                         add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
-                                                      labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks), FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE), info$text_chunks)),
+                                                      labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
+                                                                               FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE), info$text_chunks)),
                                         add_rank_list(text = "to here", input_id = "rank_list_to", labels = NULL)
                                       ),
                                       size = "xl", easyClose = TRUE, footer = NULL)
