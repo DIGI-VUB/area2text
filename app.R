@@ -88,16 +88,15 @@ db_write <- function(db = ":memory:", data, table, ...){
 ##
 ## Data frame with document id, text and image_url
 ##
-#x        <- readRDS("/mnt/digidisk/home/digi/ShinyApps/getuigenissen2-area2text/getuigenissen_2_0.rds")
-#x        <- x$brugse_vrije
-#x$id     <- x$id
-#x$text   <- sapply(x$value, FUN = function(x) xml_text(read_html(x)))
-#x$image  <- x$image_url
 x <- data.frame(id = "digi-vub",
                 text = "Brussels Platform for Digital Humanities\n\nResearch Group",
                 image_url = "https://raw.githubusercontent.com/DIGI-VUB/recogito/master/tools/logo.png",
                 stringsAsFactors = FALSE)
 
+#x        <- readRDS("/mnt/digidisk/home/digi/ShinyApps/getuigenissen2-area2text/getuigenissen_2_0.rds")
+#x        <- x$brugse_vrije
+#x$text   <- sapply(x$value, FUN = function(x) xml_text(read_html(x)))
+#settings$default_db <- "brugse_vrije.rds"
 
 ##########################################################################################################
 ## UI
