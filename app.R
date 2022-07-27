@@ -439,7 +439,7 @@ server <- function(input, output, session) {
       text_chunks_corrected <- unlist(text_chunks_corrected)
       DB_OUT$items[[length(DB_OUT$items) + 1]] <- list(doc_id = DB_APP$doc_id,
                                                        item   = info$item,
-                                                       area   = head(anno, n = 1),
+                                                       area   = tail(anno, n = 1),
                                                        texts  = text_chunks[text_chunks_selected],
                                                        texts_corrected = text_chunks_corrected,
                                                        texts_index = text_chunks_selected,
