@@ -170,7 +170,9 @@ popup_upload <- modalDialog(title = "Upload data",
 ##
 ##
 server <- function(input, output, session) {
+  ##
   ## Intro
+  ##
   sendSweetAlert(
     session = session,
     title = "Welcome",
@@ -179,13 +181,17 @@ server <- function(input, output, session) {
       "You upload images and the text chunks and indicate which text chunk belongs to which part of the image"),
     html = TRUE, type = "info", btn_labels = "Ok")
 
-  ## DB_DATA: raw data, DB_TODO: things to do, DB_APP: current image, DB_OUT: results of the annotations
+  ##
+  ## Core reactives: DB_DATA: raw data, DB_TODO: things to do, DB_APP: current image, DB_OUT: results of the annotations
+  ##
   DB_DATA <- reactiveValues(rawdata = x, dataset_label = settings$default_db, db = file_db(settings$default_db))
   DB_TODO <- reactiveValues(data = x)
   DB_APP  <- reactiveValues(image_nr = 0, url = NULL, doc_id = NULL)
   DB_OUT  <- reactiveValues(items = list())
 
-  ## In case of new data, create a new SQLite DB
+  ##
+  ## In case of new data is uploaded, create a new SQLite DB
+  ##
   observe({
     if(input$tabs_sidebar == "tabs_sidebar_upload"){
       showModal(popup_upload)
@@ -230,10 +236,14 @@ server <- function(input, output, session) {
       DB_APP$image_nr <- sum(DB_TODO$data$id %in% x$annotations$doc_id)
     })
   })
+  ##
   ## FOOTER showing the path to the database
+  ##
   output$uo_footer_right <- renderText(DB_DATA$db)
 
-  ## Export data
+  ##
+  ## Export data functionality (get data from DB and put it in rds file)
+  ##
   output$ui_export <- downloadHandler(
     filename = function() {
       paste(file_path_sans_ext(basename(DB_DATA$db)), ".rds", sep = "")
@@ -247,7 +257,9 @@ server <- function(input, output, session) {
     }
   )
 
-  ## Main function current_image: get the image and the texts
+  ##
+  ## Save results to the database if a person clicks on next image
+  ##
   observeEvent(input$ui_next, {
     ## SAVE
     output <- data.frame(doc_id           = DB_APP$doc_id,
@@ -262,6 +274,11 @@ server <- function(input, output, session) {
     }
     DB_APP$image_nr <- DB_APP$image_nr + 1
   })
+
+  ##
+  ## Main function current_image: get the image from the url, split the texts in paragraphs along \n\n
+  ## Triggered in case new data is uploaded and image number is increased
+  ##
   current_image <- reactive({
     x <- DB_TODO$data
     i <- DB_APP$image_nr + 1
@@ -301,14 +318,120 @@ server <- function(input, output, session) {
          text_chunks = text_chunks,
          text = text)
   })
-
-  output$image_info <- renderPrint({
+  ##
+  ## Main area of selection
+  ##
+  output$anno <- renderOpenSeaDragon({
     info <- current_image()
-    list(info$text_chunks,
-         img = info$url,
-         info = image_info(info$img)
+    #url <- "img/default.jpg"
+    url  <- info$url
+    annotorious("annotations", tags = c("question", "answer", "intro/end", "other", "unclear"), src = url, type = "openseadragon")
+  })
+
+  ##
+  ## Extract the area of the last annotation, make sure using ocv_crop_annotorious that areas are not outside the image dimensions and save the file on disk
+  ##
+  last_anno <- reactive({
+    anno <- read_annotorious(input$annotations)
+    if(nrow(anno) > 0){
+      isolate({
+        info <- current_image()
+        anno <- ocv_crop_annotorious(anno, bbox = info$bbox)
+      })
+      msg <- tail(anno, n = 1)
+      if(msg$type %in% "POLYGON"){
+        area <- ocv_polygon(info$img_ocv, pts = msg$polygon[[1]], crop = TRUE)
+      }else if(msg$type %in% "RECTANGLE"){
+        area <- ocv_rectangle(info$img_ocv, x = msg$x, y = msg$y, width = msg$width, height = msg$height)
+      }
+      area <- ocv_bitmap(area)
+      area <- image_read(area)
+      path <- file.path(settings$local_images, "default1.jpg")
+      path <- file.path(settings$local_images, basename(tempfile(fileext = '.jpg')))
+      image_write(area, path = path)
+      list(n = nrow(anno), img = area, data = msg, path = path)
+    }else{
+      list(n = nrow(anno), data = anno)
+    }
+  })
+
+  ##
+  ## Once there is a new area extracted: show the popup to assign the area to the text chunk, using a zoomable image and a ranked list
+  ##
+  observe({
+    areas <- last_anno()
+    isolate({
+      info                 <- current_image()
+      existing_assignments <- unlist(lapply(DB_OUT$items, FUN = function(x) x$areas$id))
+    })
+    if(areas$n > 0 && !areas$data$id %in% existing_assignments){
+      popup_assignment <- modalDialog(title = "Assign area to text - drag the text on the image from left to right",
+                                      actionButton(inputId = "ui_save_assignment", label = "Assignment done", status = "success", flat = FALSE, width = "100%"),
+                                      openseadragonOutputNoToolbar(outputId = "uo_area", height = "200px"),
+                                      bucket_list(
+                                        header = NULL,
+                                        group_name = "bucket_list_group",
+                                        orientation = "horizontal",
+                                        add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
+                                                      labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
+                                                                               FUN = function(x, i) tags$div(tags$em(textAreaInput(inputId = sprintf("ui_paragraph_%s", i), value = x, label = NULL))), SIMPLIFY = FALSE),
+                                                                        seq_along(info$text_chunks))),
+                                        #add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
+                                        #              labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
+                                        #                                       FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE),
+                                        #                                seq_along(info$text_chunks))),
+                                        add_rank_list(text = "to here", input_id = "rank_list_to", labels = NULL)
+                                      ),
+                                      size = "xl", easyClose = TRUE, footer = NULL)
+      showModal(popup_assignment)
+    }
+  })
+  output$uo_area <- renderOpenSeaDragonNoToolbar({
+    areas <- last_anno()
+    if(areas$n > 0){
+      annotorious("selected-area-viewer", src = sprintf("img/%s", basename(areas$path)), type = "openseadragon-notoolbar")
+    }
+  })
+  output$uo_rankme <- renderUI({
+    areas       <- last_anno()
+    info        <- current_image()
+    text_chunks <- info$text_chunks
+    values <- mapply(text_chunks, seq_along(text_chunks), FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE)
+    values <- setNames(values, sprintf("paragraph_%s", seq_along(values)))
+    values <- setNames(values, seq_along(values))
+    #values[[4]] <- tags$div(
+    #  em("Complex"), " html tag without a name", tags$img(src = "img/default1.jpg")
+    #)
+    rank_list(
+      text = NULL,
+      labels = values,
+      input_id = "rank_list_multi",
+      options = sortable_options(multiDrag = TRUE)
     )
   })
+  ##
+  ## Save the assignment and the current set of area annotations in OUT
+  ##
+  observeEvent(input$ui_save_assignment, {
+    anno <- read_annotorious(input$annotations)
+    if(length(input$rank_list_to) > 0){
+      info                  <- current_image()
+      text_chunks           <- info$text_chunks
+      text_chunks_selected  <- as.integer(input$rank_list_to)
+      text_chunks_corrected <- text_chunks[text_chunks_selected]
+      text_chunks_corrected <- sapply(text_chunks_selected, FUN = function(i) input[[sprintf("ui_paragraph_%s", i)]])
+      DB_OUT$items[[length(DB_OUT$items) + 1]] <- list(doc_id = DB_APP$doc_id,
+                                                       item   = info$item,
+                                                       area   = head(anno, n = 1),
+                                                       texts  = text_chunks[text_chunks_selected],
+                                                       texts_corrected = text_chunks_corrected,
+                                                       areas  = anno, anno = input$annotations)
+      removeModal()
+    }else{
+      showNotification("First assign text to the image by dragging the corresponding text from left to right", type = "error")
+    }
+  })
+
 
   ##
   ## Left side overview statistics
@@ -349,9 +472,17 @@ server <- function(input, output, session) {
       blockQuote("Image: ", label, color = "info")
     )
   })
+
   ##
-  ## Output results
+  ## Output results in technical tab
   ##
+  output$image_info <- renderPrint({
+    info <- current_image()
+    list(info$text_chunks,
+         img = info$url,
+         info = image_info(info$img)
+    )
+  })
   output$annotations_current <- renderPrint({
     x <- read_annotorious(input$annotations)
     x
@@ -359,108 +490,7 @@ server <- function(input, output, session) {
   output$annotation_result_r <- renderPrint({
     str(DB_OUT$items)
   })
-  ##
-  ## Main area of selection
-  ##
-  output$anno <- renderOpenSeaDragon({
-    info <- current_image()
-    #url <- "img/default.jpg"
-    url  <- info$url
-    annotorious("annotations", tags = c("question", "answer", "intro/end", "other", "unclear"), src = url, type = "openseadragon")
-  })
 
-  last_anno <- reactive({
-    anno <- read_annotorious(input$annotations)
-    if(nrow(anno) > 0){
-      isolate({
-        info <- current_image()
-        anno <- ocv_crop_annotorious(anno, bbox = info$bbox)
-      })
-      msg <- tail(anno, n = 1)
-      if(msg$type %in% "POLYGON"){
-        area <- ocv_polygon(info$img_ocv, pts = msg$polygon[[1]], crop = TRUE)
-      }else if(msg$type %in% "RECTANGLE"){
-        area <- ocv_rectangle(info$img_ocv, x = msg$x, y = msg$y, width = msg$width, height = msg$height)
-      }
-      area <- ocv_bitmap(area)
-      area <- image_read(area)
-      path <- file.path(settings$local_images, "default1.jpg")
-      path <- file.path(settings$local_images, basename(tempfile(fileext = '.jpg')))
-      image_write(area, path = path)
-      list(n = nrow(anno), img = area, data = msg, path = path)
-    }else{
-      list(n = nrow(anno), data = anno)
-    }
-  })
-  observe({
-    areas <- last_anno()
-    isolate({
-      info                 <- current_image()
-      existing_assignments <- unlist(lapply(DB_OUT$items, FUN = function(x) x$areas$id))
-    })
-    if(areas$n > 0 && !areas$data$id %in% existing_assignments){
-      popup_assignment <- modalDialog(title = "Assign area to text - drag the text on the image from left to right",
-                                      actionButton(inputId = "ui_save_assignment", label = "Assignment done", status = "success", flat = FALSE, width = "100%"),
-                                      openseadragonOutputNoToolbar(outputId = "uo_area", height = "200px"),
-                                      bucket_list(
-                                        header = NULL,
-                                        group_name = "bucket_list_group",
-                                        orientation = "horizontal",
-                                        add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
-                                                      labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
-                                                                               FUN = function(x, i) tags$div(tags$em(textAreaInput(inputId = sprintf("ui_paragraph_%s", i), value = x, label = NULL))), SIMPLIFY = FALSE),
-                                                                        seq_along(info$text_chunks))),
-                                        #add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
-                                        #              labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
-                                        #                                       FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE),
-                                        #                                seq_along(info$text_chunks))),
-                                        add_rank_list(text = "to here", input_id = "rank_list_to", labels = NULL)
-                                      ),
-                                      size = "xl", easyClose = TRUE, footer = NULL)
-      showModal(popup_assignment)
-    }
-  })
-  observeEvent(input$ui_save_assignment, {
-    anno <- read_annotorious(input$annotations)
-    if(length(input$rank_list_to) > 0){
-      info                  <- current_image()
-      text_chunks           <- info$text_chunks
-      text_chunks_selected  <- as.integer(input$rank_list_to)
-      text_chunks_corrected <- text_chunks[text_chunks_selected]
-      text_chunks_corrected <- sapply(text_chunks_selected, FUN = function(i) input[[sprintf("ui_paragraph_%s", i)]])
-      DB_OUT$items[[length(DB_OUT$items) + 1]] <- list(doc_id = DB_APP$doc_id,
-                                                       item   = info$item,
-                                                       area   = head(anno, n = 1),
-                                                       texts  = text_chunks[text_chunks_selected],
-                                                       texts_corrected = text_chunks_corrected,
-                                                       areas  = anno, anno = input$annotations)
-      removeModal()
-    }else{
-      showNotification("First assign text to the image by dragging the corresponding text from left to right", type = "error")
-    }
-  })
-  output$uo_area <- renderOpenSeaDragonNoToolbar({
-    areas <- last_anno()
-    if(areas$n > 0){
-      annotorious("selected-area-viewer", src = sprintf("img/%s", basename(areas$path)), type = "openseadragon-notoolbar")
-    }
-  })
-  output$uo_rankme <- renderUI({
-    areas       <- last_anno()
-    info        <- current_image()
-    text_chunks <- info$text_chunks
-    values <- mapply(text_chunks, seq_along(text_chunks), FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE)
-    values <- setNames(values, sprintf("paragraph_%s", seq_along(values)))
-    values <- setNames(values, seq_along(values))
-    #values[[4]] <- tags$div(
-    #  em("Complex"), " html tag without a name", tags$img(src = "img/default1.jpg")
-    #)
-    rank_list(
-      text = NULL,
-      labels = values,
-      input_id = "rank_list_multi",
-      options = sortable_options(multiDrag = TRUE)
-    )
-  })
+
 }
 shinyApp(ui, server)
