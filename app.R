@@ -30,7 +30,6 @@ settings <- list()
 settings$local_images <- file.path(getwd(), "src", "area2text", "img")
 settings$local_images <- tempdir()
 settings$default_db   <- file_db("area2text.RData")
-settings$default_db   <- file_db("getuigenissen-2.0.db")
 
 
 ## Function to read/write to the database and initialise the database
@@ -115,7 +114,9 @@ ui <- dashboardPage(
                              infoBoxOutput(outputId = "uo_box_images_done", width = 12),
                              uiOutput(outputId = "uo_current_image"),
                              infoBoxOutput(outputId = "uo_box_chunk_amount", width = 12),
-                             infoBoxOutput(outputId = "uo_box_chunk_amount_done", width = 12)
+                             infoBoxOutput(outputId = "uo_box_chunk_amount_done", width = 12),
+                             div(downloadButton(outputId = "ui_export", label = "Export data", icon = icon("download")), style = "text-align: center")
+
                              ),
   footer = dashboardFooter(left = "Brussels Platform for Digital Humanities", right = tags$span(id = "ui_footer_right", textOutput(outputId = "uo_footer_right"))),
   body = dashboardBody(
@@ -129,7 +130,7 @@ ui <- dashboardPage(
                           openseadragonOutput(outputId = "anno", width = "100%", height = "900px"),
                           ),
                    column(width = 4,
-                          actionButton(inputId = "ui_next", label = "GO TO NEXT IMAGE", icon = icon("play"), width = "100%", status = "secondary", flat = TRUE),
+                          actionButton(inputId = "ui_next", label = "SAVE AND GO TO NEXT IMAGE", icon = icon("play"), width = "100%", status = "secondary", flat = TRUE),
                           tags$br(),
                           tags$br(),
                           box(title = "Texts", icon = icon("table"),
@@ -227,7 +228,19 @@ server <- function(input, output, session) {
   ## FOOTER showing the path to the database
   output$uo_footer_right <- renderText(DB_DATA$db)
 
-
+  ## Export data
+  output$ui_export <- downloadHandler(
+    filename = function() {
+      paste(file_path_sans_ext(basename(DB_DATA$db)), ".rds", sep = "")
+    },
+    content = function(file) {
+      docs                    <- db_read(DB_DATA$db, "select * from docs")
+      annotations             <- db_read(DB_DATA$db, "select * from annotations")
+      annotations$text_chunks <- lapply(annotations$text_chunks, fromJSON)
+      annotations$areas       <- lapply(annotations$areas, unserializeJSON)
+      saveRDS(list(docs = docs, anno = annotations), file, compress = FALSE, version = 2)
+    }
+  )
 
   ## Main function current_image: get the image and the texts
   observeEvent(input$ui_next, {
@@ -239,7 +252,7 @@ server <- function(input, output, session) {
                          areas            = as.character(serializeJSON(DB_OUT$items)),
                          n_areas          = length(DB_OUT$items),
                          stringsAsFactors = FALSE)
-    if(DB_APP$image_nr <= nrow(DB_TODO$data)){
+    if(DB_APP$image_nr < nrow(DB_TODO$data)){
       db_write(DB_DATA$db, data = output, table = "annotations", overwrite = FALSE, append = TRUE)
     }
     DB_APP$image_nr <- DB_APP$image_nr + 1
@@ -250,7 +263,7 @@ server <- function(input, output, session) {
     })
     i            <- DB_APP$image_nr + 1
     if(i > nrow(x)){
-      i <- i - 1
+      i <- nrow(x)
       sendSweetAlert(session = session, title = "Yippie",
         text = tags$span("All images are handled ", icon("smile")#, tags$p(tags$img(src = img_start, height = "100px", width = "auto"))
                          ),
@@ -390,14 +403,15 @@ server <- function(input, output, session) {
     })
     if(areas$n > 0 && !areas$data$id %in% existing_assignments){
       popup_assignment <- modalDialog(title = "Assign area to text - drag the text on the image from left to right",
-                                      actionButton(inputId = "ui_save_assignment", label = "Save assignment", status = "success", flat = FALSE, width = "100%"),
+                                      actionButton(inputId = "ui_save_assignment", label = "Assignment done", status = "success", flat = FALSE, width = "100%"),
                                       openseadragonOutputNoToolbar(outputId = "uo_area", height = "200px"),
                                       bucket_list(
                                         header = NULL,
                                         group_name = "bucket_list_group",
                                         orientation = "horizontal",
-                                        add_rank_list(text = "Drag text from here", labels = mapply(info$text_chunks, seq_along(info$text_chunks), FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE), input_id = "rank_list_from"),
-                                        add_rank_list(text = "to here", labels = NULL, input_id = "rank_list_to")
+                                        add_rank_list(text = "Drag text from here", input_id = "rank_list_from",
+                                                      labels = setNames(mapply(info$text_chunks, seq_along(info$text_chunks), FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE), info$text_chunks)),
+                                        add_rank_list(text = "to here", input_id = "rank_list_to", labels = NULL)
                                       ),
                                       size = "xl", easyClose = TRUE, footer = NULL)
       showModal(popup_assignment)
@@ -407,7 +421,10 @@ server <- function(input, output, session) {
     anno <- read_annotorious(input$annotations)
     if(length(input$rank_list_to) > 0){
       info <- current_image()
-      DB_OUT$items[[length(DB_OUT$items) + 1]] <- list(item = info$item, areas = head(anno, n = 1), texts = input$rank_list_to, anno = anno, json = input$annotations, doc_id = DB_APP$doc_id)
+      DB_OUT$items[[length(DB_OUT$items) + 1]] <- list(doc_id = DB_APP$doc_id,
+                                                       item = info$item,
+                                                       area = head(anno, n = 1),
+                                                       texts = input$rank_list_to, areas = anno, anno = input$annotations)
       removeModal()
     }else{
       showNotification("First assign text to the image by dragging the corresponding text from left to right", type = "error")
