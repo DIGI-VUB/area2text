@@ -251,7 +251,7 @@ server <- function(input, output, session) {
   ##
   output$ui_export <- downloadHandler(
     filename = function() {
-      paste(file_path_sans_ext(basename(DB_DATA$db)), ".rds", sep = "")
+      paste("area2text_", file_path_sans_ext(basename(DB_DATA$db)), ".rds", sep = "")
     },
     content = function(file) {
       docs                    <- db_read(DB_DATA$db, "select * from docs")
