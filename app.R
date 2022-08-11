@@ -83,6 +83,12 @@ db_write <- function(db = ":memory:", data, table, ...){
   x <- dbWriteTable(con, name = table, value = data, ...)
   x
 }
+db_exec <- function(db = ":memory:", statement, ...){
+  con <- db_con(db)
+  on.exit(dbDisconnect(con))
+  x <- dbExecute(con, statement, ...)
+  x
+}
 
 
 ##
@@ -381,9 +387,9 @@ server <- function(input, output, session) {
         allow_update_text  <- input$ui_allow_text_changing
       })
       if(allow_update_text){
-        labels <- setNames(mapply(info$text_chunks[idx], seq_along(info$text_chunks)[idx],
+        labels <- setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
                                   FUN = function(x, i) tags$div(tags$em(textAreaInput(inputId = sprintf("ui_paragraph_%s", i), value = x, label = NULL, width = "100%", height = "100%"))), SIMPLIFY = FALSE),
-                           seq_along(info$text_chunks)[idx])
+                           seq_along(info$text_chunks))
       }else{
         labels <- setNames(mapply(info$text_chunks[idx], seq_along(info$text_chunks)[idx],
                                   FUN = function(x, i) tags$div(tags$em(x)), SIMPLIFY = FALSE),
