@@ -389,7 +389,7 @@ server <- function(input, output, session) {
       if(allow_update_text){
         labels <- setNames(mapply(info$text_chunks, seq_along(info$text_chunks),
                                   FUN = function(x, i) tags$div(tags$em(textAreaInput(inputId = sprintf("ui_paragraph_%s", i), value = x, label = NULL, width = "100%",
-                                                                                      height = paste(min(100, length(unlist(strsplit(x, "\n"))) * 50), "px", sep = ""), resize = "vertical"))), SIMPLIFY = FALSE),
+                                                                                      height = paste(min(200, length(unlist(strsplit(x, "\n"))) * 50), "px", sep = ""), resize = "vertical"))), SIMPLIFY = FALSE),
                            seq_along(info$text_chunks))
       }else{
         labels <- setNames(mapply(info$text_chunks[idx], seq_along(info$text_chunks)[idx],
